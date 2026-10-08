@@ -1,4 +1,4 @@
-name: Build telegram-bot-api
+name: Build telegram-bot-api (aarch64)
 
 on:
   workflow_dispatch:
@@ -7,18 +7,13 @@ on:
         description: 'tdlib/telegram-bot-api git ref (tag/branch/sha)'
         required: false
         default: 'master'
+  push:
+    branches: [main]
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            arch: x86_64
-          - runner: ubuntu-22.04-arm
-            arch: aarch64
-    runs-on: ${{ matrix.runner }}
+    # Native ARM64 runner -> aarch64 binary matching the target host.
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 350
 
     steps:
@@ -49,9 +44,13 @@ jobs:
 
       - name: Clone telegram-bot-api with submodules
         run: |
-          git clone --recursive --depth 1 \
+          git clone --recursive \
             --branch "${{ github.event.inputs.ref || 'master' }}" \
             https://github.com/tdlib/telegram-bot-api.git src
+          cd src
+          git log --oneline -1
+          echo "--- submodule commit ---"
+          git -C td submodule status 2>/dev/null | head || true
 
       - name: Configure
         run: |
@@ -59,6 +58,7 @@ jobs:
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_PREFIX=/home/runner/install \
+                -DTD_ENABLE_LTO=OFF \
                 .. 2>&1 | tail -30
 
       - name: Build
@@ -70,20 +70,21 @@ jobs:
         run: |
           ls -lh /home/runner/install/bin/
           readelf -h /home/runner/install/bin/telegram-bot-api | grep -E 'Machine|Class'
+          ldd /home/runner/install/bin/telegram-bot-api || true
           /home/runner/install/bin/telegram-bot-api --version || true
 
       - name: Package
         run: |
           cd /home/runner/install
-          TARBALL="telegram-bot-api-${{ matrix.arch }}-linux.tar.gz"
+          TARBALL="telegram-bot-api-aarch64-linux.tar.gz"
           tar czf "$TARBALL" bin
-          sha256sum "$TARBALL" | tee "SHA256SUMS-${{ matrix.arch }}.txt"
+          sha256sum "$TARBALL" | tee SHA256SUMS-aarch64.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-bot-api-${{ matrix.arch }}
+          name: telegram-bot-api-aarch64
           path: |
-            /home/runner/install/telegram-bot-api-${{ matrix.arch }}-linux.tar.gz
-            /home/runner/install/SHA256SUMS-${{ matrix.arch }}.txt
+            /home/runner/install/telegram-bot-api-aarch64-linux.tar.gz
+            /home/runner/install/SHA256SUMS-aarch64.txt
           retention-days: 30
