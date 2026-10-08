@@ -1,0 +1,75 @@
+name: Build telegram-bot-api
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'tdlib/telegram-bot-api git ref (tag/branch/sha)'
+        required: false
+        default: 'master'
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake gperf libssl-dev zlib1g-dev git ca-certificates
+
+      - name: Show toolchain
+        run: |
+          cmake --version | head -1
+          g++ --version | head -1
+          gperf --version | head -1
+
+      - name: Clone telegram-bot-api with submodules
+        run: |
+          git clone --recursive --depth 1 \
+            --branch "${{ github.event.inputs.ref || 'master' }}" \
+            https://github.com/tdlib/telegram-bot-api.git src
+
+      - name: Configure
+        run: |
+          cd src
+          mkdir -p build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/home/runner/install \
+                .. 2>&1 | tail -30
+
+      - name: Build
+        run: |
+          cd src/build
+          nproc
+          cmake --build . --target install -j"$(nproc)"
+
+      - name: Verify binary
+        run: |
+          ls -lh /home/runner/install/bin/
+          /home/runner/install/bin/telegram-bot-api --version || true
+
+      - name: Package
+        run: |
+          cd /home/runner/install
+          tar czf telegram-bot-api-ubuntu2204-x86_64.tar.gz bin
+          sha256sum telegram-bot-api-ubuntu2204-x86_64.tar.gz | tee SHA256SUMS.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-bot-api-ubuntu2204-x86_64
+          path: |
+            /home/runner/install/telegram-bot-api-ubuntu2204-x86_64.tar.gz
+            /home/runner/install/SHA256SUMS.txt
+          retention-days: 30
