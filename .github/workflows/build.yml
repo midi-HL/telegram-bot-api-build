@@ -7,15 +7,28 @@ on:
         description: 'tdlib/telegram-bot-api git ref (tag/branch/sha)'
         required: false
         default: 'master'
-  push:
-    branches: [ main, master ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 350
 
     steps:
+      - name: Show environment
+        run: |
+          uname -m
+          nproc
+          df -h / | tail -1
+          free -m | head -2
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
@@ -51,25 +64,26 @@ jobs:
       - name: Build
         run: |
           cd src/build
-          nproc
           cmake --build . --target install -j"$(nproc)"
 
       - name: Verify binary
         run: |
           ls -lh /home/runner/install/bin/
+          readelf -h /home/runner/install/bin/telegram-bot-api | grep -E 'Machine|Class'
           /home/runner/install/bin/telegram-bot-api --version || true
 
       - name: Package
         run: |
           cd /home/runner/install
-          tar czf telegram-bot-api-ubuntu2204-x86_64.tar.gz bin
-          sha256sum telegram-bot-api-ubuntu2204-x86_64.tar.gz | tee SHA256SUMS.txt
+          TARBALL="telegram-bot-api-${{ matrix.arch }}-linux.tar.gz"
+          tar czf "$TARBALL" bin
+          sha256sum "$TARBALL" | tee "SHA256SUMS-${{ matrix.arch }}.txt"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-bot-api-ubuntu2204-x86_64
+          name: telegram-bot-api-${{ matrix.arch }}
           path: |
-            /home/runner/install/telegram-bot-api-ubuntu2204-x86_64.tar.gz
-            /home/runner/install/SHA256SUMS.txt
+            /home/runner/install/telegram-bot-api-${{ matrix.arch }}-linux.tar.gz
+            /home/runner/install/SHA256SUMS-${{ matrix.arch }}.txt
           retention-days: 30
